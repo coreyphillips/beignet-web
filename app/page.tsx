@@ -60,6 +60,8 @@ import { ReceiveReceipt } from './receive-receipt';
 import { useReceiveStatus } from '@/lib/use-receive-status';
 import { createSettingsUpdater } from '@/lib/settings-update.mjs';
 import type { ApplySettings, SettingsFeedback as SettingsFeedbackState, SettingsOutcome } from '@/lib/settings-types';
+// Set at build time when the app is hosted under a path prefix.
+const BASE_PATH = (process.env.NEXT_PUBLIC_BASE_PATH ?? '').replace(/\/+$/, '');
 
 type Client = WalletClientInterface;
 type Screen =
@@ -236,7 +238,7 @@ export default function Home() {
     }
   }
   useEffect(() => {
-    if (process.env.NODE_ENV === 'production' && 'serviceWorker' in navigator) void navigator.serviceWorker.register('/sw.js').catch(() => {});
+    if (process.env.NODE_ENV === 'production' && 'serviceWorker' in navigator) void navigator.serviceWorker.register(`${BASE_PATH}/sw.js`).catch(() => {});
   }, []);
   useEffect(() => {
     if (new URLSearchParams(window.location.search).get('demo') === '1')

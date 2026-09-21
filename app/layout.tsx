@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import './globals.css';
 export const metadata: Metadata = {
   title: 'Beignet — Your everyday wallet',
-  manifest: '/manifest.webmanifest',
+  manifest: `${(process.env.NEXT_PUBLIC_BASE_PATH ?? '').replace(/\/+$/, '')}/manifest.webmanifest`,
   description:
     'A simple Lightning-first Bitcoin wallet, on this device or connected to your own host.',
 };

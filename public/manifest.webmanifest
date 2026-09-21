@@ -1,1 +1,1 @@
-{"name":"Beignet wallet","short_name":"Beignet","start_url":"/","display":"standalone","background_color":"#17151b","theme_color":"#17151b","icons":[{"src":"/favicon.svg","sizes":"any","type":"image/svg+xml","purpose":"any"}]}
+{"name":"Beignet wallet","short_name":"Beignet","start_url":"./","display":"standalone","background_color":"#17151b","theme_color":"#17151b","icons":[{"src":"favicon.svg","sizes":"any","type":"image/svg+xml","purpose":"any"}]}
