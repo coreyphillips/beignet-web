@@ -38,7 +38,7 @@ export function ConnectionFields({ value, onChange, disabled }: { value: Connect
         <option value="electrum-ws">Electrum server over WebSocket</option>
       </select></label>
       <label className="field" htmlFor="connection-chain-url"><span>{value.chainKind === 'esplora' ? 'API URL' : 'Electrum WebSocket URL'}</span><Input id="connection-chain-url" value={value.chainUrl} onChange={e => set({ chainUrl: e.target.value })} disabled={disabled} placeholder={value.chainKind === 'esplora' ? 'https://mempool.space/api' : 'wss://electrum.example:50004'} spellCheck={false} /></label>
-      <p className="muted">A browser cannot open TCP or Tor connections. Your primary node must accept WebSocket peers over WSS, or over ws:// when it runs on this computer.</p>
+      <p className="muted">A browser cannot open TCP or Tor connections. Your primary node must accept WebSocket peers over WSS, or over ws:// when it runs on this computer. For an address on this computer or your local network, allow the browser’s local network access prompt when it appears.</p>
     </>}
   </>;
 }
