@@ -18,7 +18,10 @@
     "test": "node --test tests/*.test.mjs",
     "test:worker": "node tests/worker-regtest.mjs",
     "test:worker:jit": "node tests/worker-jit-regtest.mjs",
-    "test:worker:ffor": "node tests/worker-ffor-regtest.mjs"
+    "test:worker:ffor": "node tests/worker-ffor-regtest.mjs",
+    "test:worker:direct": "node tests/worker-direct-regtest.mjs",
+    "bridge": "node scripts/electrum-ws-bridge.mjs",
+    "test:esplora:online": "node tests/esplora-online-smoke.mjs"
   },
   "dependencies": {
     "@base-ui/react": "1.7.0",

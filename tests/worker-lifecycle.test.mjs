@@ -4,21 +4,22 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as profiles from '../lib/local/network-profiles.mjs';
 import * as identity from '../lib/local/wallet-identity.mjs';
+import * as connection from '../lib/local/connection.mjs';
 const filename = new URL('../lib/local/wallet.worker.mjs', import.meta.url).pathname;
 const source=fs.readFileSync(filename,'utf8').replace(/^import .*;\n/gm,'');
 
 // Exercise the actual worker message/lifecycle code, replacing only native I/O
 // and engine internals. No real seed, network connection or wallet is created.
 function fixture(){
-  const files=new Map(),results=[],engines=[],routes=[];
+  const files=new Map(),results=[],engines=[],routes=[],transports=[];
   let failConnection=false,failClose=false,failNextStart=false,cleared=0,vaultClosed=0;
   const initial={id:'test-wallet',network:'mainnet',lfbw:{enabled:true,primaryUri:'old-primary'},electrum:{host:'bitkit.to',port:9999,tls:true}};
   files.set('/wallet/registry.json',new TextEncoder().encode(JSON.stringify({record:initial,mnemonic:'synthetic fixture string'})));
   const volume={read:p=>files.get(p)||null,write:(p,b)=>files.set(p,b),remove:p=>files.delete(p),rename:(a,b)=>{files.set(b,files.get(a));files.delete(a)},list:p=>[...files.keys()].filter(x=>x.startsWith(p)),clearMemory(){cleared++}};
-  const context=vm.createContext({console,TextEncoder,TextDecoder,URL,Error,setTimeout:()=>1,clearTimeout(){},fetch(){},self:{location:{origin:'http://localhost:8787'},postMessage:r=>results.push(r)},...profiles,...identity,
+  const context=vm.createContext({console,TextEncoder,TextDecoder,URL,Error,setTimeout:()=>1,clearTimeout(){},fetch(){},self:{location:{origin:'http://localhost:8787'},postMessage:r=>results.push(r)},...profiles,...identity,...connection,
     openBrowserStore:async()=>({close(){}}),unlockVault:async()=>({close(){vaultClosed++}}),inspectVault(){},createVolume:()=>volume,
     automaticConnection:async(_origin,_fetch,profile)=>{if(failConnection)throw new Error('provisioning failed');routes.push(structuredClone(profile));return {...profile,managed:true,electrumUrl:'ws://localhost:8787/transport/electrum',peerUrl:'ws://localhost:8787/transport/peer',token:'a'.repeat(32),expiresAt:Date.now()+300000}},sameConnection:()=>true,
-    createSqlJsDatabaseFactory:async()=>()=>{},createRelaySocketFactory:()=>()=>{},createPortableRuntime:async options=>{
+    createSqlJsDatabaseFactory:async()=>()=>{},createTransport:config=>{transports.push(structuredClone(config));return {socketFactory:()=>{},close(){}}},createPortableRuntime:async options=>{
       const raw=options.volume.read('/wallet/registry.json');
       let registry=raw && JSON.parse(new TextDecoder().decode(raw));
       let record=registry?.record;
@@ -47,7 +48,7 @@ function fixture(){
   vm.runInContext(source,context,{filename});
   let id=0;
   const call=async(operation,payload)=>{await context.self.onmessage({data:{id:++id,operation,payload}});return results.at(-1)};
-  return {call,engines,routes,initial,files,setFailConnection:v=>failConnection=v,setFailClose:v=>failClose=v,setFailNextStart:v=>failNextStart=v,counts:()=>({cleared,vaultClosed})};
+  return {call,engines,routes,transports,initial,files,setFailConnection:v=>failConnection=v,setFailClose:v=>failClose=v,setFailNextStart:v=>failNextStart=v,counts:()=>({cleared,vaultClosed})};
 }
 const profile=primaryUri=>({network:'mainnet',primaryUri,electrum:{host:'bitkit.to',port:9999,tls:true}});
 async function open(f){await f.call('unlock',{password:'',automatic:true});await f.call('request',{path:'/api/wallets/test-wallet/start',method:'POST'})}
@@ -138,4 +139,26 @@ test('a missing referenced seed source prevents creating a replacement and leave
   assert.equal(f.engines[0].closed,false);
   assert.equal(f.engines.length,1);
   assert.equal(f.files.has('/networks/testnet/wallet/registry.json'),false);
+});
+
+test('a first-run profile with a manual connection starts the engine without the origin transport and keeps the connection through wallet creation',async()=>{
+  const f=fixture();
+  const connection={mode:'direct',peerUrl:'ws://127.0.0.1:19847',chain:{kind:'electrum-ws',url:'ws://127.0.0.1:60004'}};
+  const opened=await f.call('unlock',{password:'',automatic:true,profile:{network:'regtest',primaryUri:'pk@127.0.0.1:19846',electrum:{host:'127.0.0.1',port:60001,tls:false},connection}});
+  assert.equal(opened.error,undefined);
+  assert.equal(f.routes.length,0,'The origin transport service is never asked');
+  assert.deepEqual(f.transports.at(-1).direct,{peerUrl:'ws://127.0.0.1:19847/',chain:{kind:'electrum-ws',url:'ws://127.0.0.1:60004/'}});
+  assert.deepEqual(f.transports.at(-1).electrum,{host:'127.0.0.1',port:60004,tls:false},'The engine addresses the chain source by its URL');
+  const saved=JSON.parse(new TextDecoder().decode(f.files.get('/networks/regtest/browser-network.json')));
+  assert.equal(saved.mode,'direct');
+  assert.equal(saved.token,undefined);
+  await f.call('request',{method:'POST',path:'/api/wallets',body:{name:'w',network:'regtest',lfbw:{enabled:true,primaryUri:'pk@127.0.0.1:19846'}}});
+  const settings=await f.call('network-settings');
+  assert.equal(settings.result.activeNetwork,'regtest');
+  assert.deepEqual(settings.result.profiles.regtest.connection,{mode:'direct',peerUrl:'ws://127.0.0.1:19847/',chain:{kind:'electrum-ws',url:'ws://127.0.0.1:60004/'}});
+  const relay=await f.call('switch-network',{network:'regtest',primaryUri:'pk@127.0.0.1:19846',electrum:{host:'127.0.0.1',port:60001,tls:false},connection:{mode:'relay',url:'ws://127.0.0.1:8790',token:'d'.repeat(43)}});
+  assert.equal(relay.error,undefined);
+  assert.equal(f.routes.length,0);
+  assert.equal(f.transports.at(-1).mode,'relay');
+  assert.equal(f.transports.at(-1).peerUrl,'ws://127.0.0.1:8790/peer');
 });

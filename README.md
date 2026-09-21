@@ -7,6 +7,21 @@ A Lightning-first wallet with two modes:
 
 The same Wallet, Send, Receive, Activity, details and Settings screens work in both modes. `/?demo=1` opens an isolated preview with no real keys or spendable money.
 
+## Static hosting (experiment)
+
+This branch also runs as plain static files, with no companion service on the app's origin. The workflow in `.github/workflows/pages.yml` publishes it to GitHub Pages at `https://coreyphillips.github.io/beignet-web/` on every push to `static-pages`. The build honours `BEIGNET_BASE_PATH` for the path prefix and `NEXT_PUBLIC_MANUAL_TRANSPORT=1` to let the user name the network connection instead of asking the origin for one.
+
+A browser cannot open TCP or Tor connections, so a static wallet needs a WebSocket door to the network. On first run, and later in **Settings → Network & servers**, the wallet takes one of two connections:
+
+- **Direct to your node.** The primary node's own WebSocket listener carries the Lightning peer connection (Beignet's `websocketPort`, or CLN's `bind-addr=ws:`). The chain comes from either an Electrum server reachable over WebSocket, or a block explorer API in the Esplora style (`https://mempool.space/api` by default on mainnet and testnet). The explorer path is an Electrum server emulated inside the worker: it answers the engine's Electrum calls from REST, takes new blocks from mempool.space's push socket, and polls subscribed scripts, so incoming on-chain detection is slower than a real Electrum subscription and depends on a third party.
+- **Through a relay.** A `beignet-relay` you operate, entered as its URL and access token. This is the same byte relay the companion embeds.
+
+From the HTTPS site only loopback addresses may be plain `ws://`; anything else needs `wss://` with a certificate the browser trusts, and the primary must accept WebSocket connections from the site's origin. The primary URI keeps its `pubkey@host:port` form; the WebSocket URL is a separate field. A browser tab is still not an always-on node.
+
+On regtest the local stack already has what direct mode needs: the Docker CLN listens for WebSocket peers on `ws://127.0.0.1:19847`, and `npm run bridge` puts a loopback WebSocket door (`ws://127.0.0.1:60004`) in front of the TCP electrs on 60001. `npm run test:worker:direct` runs the production worker bundle through that path: create a regtest wallet, reach CLN over its WebSocket listener, fund an address, see the deposit move into a dual-funded home channel, lock it in with a Lightning balance, and reopen from the saved connection after a cold restart. `BEIGNET_TEST_TRANSPORT=relay` runs the same steps through the relay. `npm run test:esplora:online` is a read-only smoke of the emulated Electrum server against mempool.space.
+
+One finding from that run: CLN's WebSocket listener drops the connection when a maximum-size Lightning message (65,569 bytes) arrives as a single frame, so the direct peer socket sends large writes as 16 KiB frames; the far side reads frames as a byte stream, so this is invisible to the protocol.
+
 ## Develop
 
 From the parent `beignet-projects` directory, `npm run web` starts or reuses the local companion and then starts this app. If running this directory’s `npm run dev` directly, start `npm run host` from the parent in a separate terminal.
@@ -42,7 +57,7 @@ Start `../beignet-host`, choose **Connect a host**, enter its URL and token, the
 npm run build
 ```
 
-Serve `dist/client` through the companion host, or route `/api/browser-config` and `/transport/*` to the companion behind the same HTTPS origin. The sibling host serves the app at `http://127.0.0.1:8787`; its wallet API is optional. Static files alone cannot provide browser TCP/Tor connectivity. Serve `.wasm` as `application/wasm` and `.js` as JavaScript. No Cloudflare account, server database, extension or WebUSB is required. This local project has not been published.
+Serve `dist/client` through the companion host, or route `/api/browser-config` and `/transport/*` to the companion behind the same HTTPS origin. The sibling host serves the app at `http://127.0.0.1:8787`; its wallet API is optional. Static files alone cannot provide browser TCP/Tor connectivity; see the static hosting section for the connections a static build can use. Serve `.wasm` as `application/wasm` and `.js` as JavaScript. No Cloudflare account, server database, extension or WebUSB is required.
 
 The build includes SQLite WASM and an app-only service-worker cache. Once installed, cached app files can load without the static server. Payments still require network access. Wallet state, transport credentials, and API responses never enter this cache. Close older app tabs and reopen after an update so the waiting app version can activate. Updates wait for open tabs to close; no update forcibly replaces an active engine. Initial loading, offline installation and a browser/version matrix have not been interactively tested.
 

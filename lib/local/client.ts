@@ -9,7 +9,14 @@ export type LocalConnectionOptions = {
 type Reply = { id: number; result?: unknown; error?: { message: string; code?: string; status?: number } };
 export type VaultStatus = { exists: boolean; passwordRequired: boolean };
 export type WalletDefaults = { network: 'mainnet' | 'testnet' | 'regtest'; primaryUri: string };
-export type NetworkProfile = WalletDefaults & { electrum: { host: string; port: number; tls: boolean } };
+export type ElectrumTarget = { host: string; port: number; tls: boolean };
+// How a wallet reaches the network when the app's origin offers no transport
+// service: a byte relay the user operates, or the primary node's WebSocket
+// listener with a chain source the browser can query itself.
+export type Connection =
+  | { mode: 'relay'; url: string; token: string }
+  | { mode: 'direct'; peerUrl: string; chain: { kind: 'electrum-ws'; url: string } | { kind: 'esplora'; url: string; ws?: string } };
+export type NetworkProfile = WalletDefaults & { electrum: ElectrumTarget; connection?: Connection };
 export type NetworkSettings = {
   activeNetwork: NetworkProfile['network']; profiles: Record<NetworkProfile['network'], NetworkProfile>;
   recovery?: { sourceNetwork: NetworkProfile['network']; separateNetworks: NetworkProfile['network'][] } | null;
@@ -51,8 +58,8 @@ export class BrowserWalletSession {
   }
   async probe(): Promise<boolean> { return (await this.call('probe')) as boolean; }
   async inspect(): Promise<VaultStatus> { return (await this.call('inspect')) as VaultStatus; }
-  async open(password: string): Promise<{ defaults: WalletDefaults }> {
-    return (await this.call('unlock', { password, automatic: true })) as { defaults: WalletDefaults };
+  async open(password: string, profile?: NetworkProfile): Promise<{ defaults: WalletDefaults }> {
+    return (await this.call('unlock', { password, automatic: true, ...(profile ? { profile } : {}) })) as { defaults: WalletDefaults };
   }
   async networkSettings(): Promise<NetworkSettings> { return (await this.call('network-settings')) as NetworkSettings; }
   async saveNetwork(profile: NetworkProfile): Promise<NetworkSettings> { return (await this.call('save-network', profile)) as NetworkSettings; }

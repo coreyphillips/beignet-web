@@ -32,6 +32,7 @@ jobs:
         env:
           BEIGNET_BASE_PATH: /beignet-web
           NEXT_PUBLIC_BASE_PATH: /beignet-web
+          NEXT_PUBLIC_MANUAL_TRANSPORT: '1'
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist/client/beignet-web

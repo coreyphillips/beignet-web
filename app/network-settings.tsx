@@ -6,6 +6,8 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { browserSession, type NetworkProfile, type NetworkSettings as Preferences } from '@/lib/local/client';
 import { defaultProfiles, validateProfile } from '@/lib/local/network-profiles.mjs';
+import { chainTarget, parseElectrumServer as parseServer } from '@/lib/local/connection.mjs';
+import { ConnectionFields, MANUAL_TRANSPORT, connectionOf, draftOf, type ConnectionDraft } from './connection-fields';
 import { Spinner } from '@/components/ui/spinner';
 import { SettingsFeedback } from './settings-feedback';
 import type { ApplySettings, SettingsFeedback as Feedback } from '@/lib/settings-types';
@@ -14,13 +16,6 @@ type Network = NetworkProfile['network'];
 const labels = { mainnet: 'Bitcoin mainnet', testnet: 'Bitcoin testnet', regtest: 'Local regtest' };
 const errorText = (e: unknown) => e instanceof Error ? e.message : 'Unable to update network settings.';
 const serverUrl = (profile: NetworkProfile) => `${profile.electrum.tls ? 'ssl' : 'tcp'}://${profile.electrum.host.includes(':') ? `[${profile.electrum.host}]` : profile.electrum.host}:${profile.electrum.port}`;
-function parseServer(value: string) {
-  let url;
-  try { url = new URL(value.trim()); } catch { throw new Error('Use a server address such as ssl://bitkit.to:9999.'); }
-  if (!['ssl:', 'tls:', 'tcp:'].includes(url.protocol) || !url.hostname || !url.port || url.username || url.password || url.search || url.hash || (url.pathname && url.pathname !== '/'))
-    throw new Error('Use ssl://host:port or tcp://host:port without a username or password.');
-  return { host: url.hostname.replace(/^\[|\]$/g, ''), port: Number(url.port), tls: url.protocol !== 'tcp:' };
-}
 function hostPreferences(network: Network): Preferences {
   const profiles = defaultProfiles() as Preferences['profiles'];
   const raw = localStorage.getItem('beignet-network-profiles');
@@ -40,12 +35,13 @@ export function NetworkSettings({ client, currentNetwork, currentWalletId, apply
   const [network, setNetwork] = useState<Network>(currentNetwork);
   const [server, setServer] = useState('');
   const [primary, setPrimary] = useState('');
+  const [connection, setConnection] = useState<ConnectionDraft>(draftOf(undefined, currentNetwork));
   const [wallets, setWallets] = useState<WalletRecord[]>([]);
   const [walletId, setWalletId] = useState(currentWalletId);
   const [action, setAction] = useState<'save' | 'connect' | null>(null);
   const busy = disabled || action !== null;
   const [error, setError] = useState('');
-  const draft = useRef({ network: currentNetwork, server: '', primary: '' });
+  const draft = useRef({ network: currentNetwork, server: '', primary: '', connection: JSON.stringify(draftOf(undefined, currentNetwork)) });
   const baseline = useRef<Preferences | null>(null);
   const identity = useRef(currentWalletId);
   useEffect(() => {
@@ -64,6 +60,10 @@ export function NetworkSettings({ client, currentNetwork, currentWalletId, apply
       if (changedWallet || !previous || draft.current.primary === previous.primaryUri) {
         draft.current.primary = next.profiles[selected].primaryUri; setPrimary(draft.current.primary);
       }
+      if (changedWallet || !previous || draft.current.connection === JSON.stringify(draftOf(previous.connection, selected))) {
+        const loaded = draftOf(next.profiles[selected].connection, selected);
+        draft.current.connection = JSON.stringify(loaded); setConnection(loaded);
+      }
       draft.current.network = selected; setNetwork(selected);
       if (changedWallet) setWalletId(currentWalletId);
       identity.current = currentWalletId; baseline.current = next; setPreferences(next);
@@ -74,11 +74,16 @@ export function NetworkSettings({ client, currentNetwork, currentWalletId, apply
   }, [client, currentNetwork, currentWalletId, session, revision]);
   const choose = (next: Network) => {
     setNetwork(next); setServer(serverUrl(preferences!.profiles[next])); setPrimary(preferences!.profiles[next].primaryUri);
-    draft.current = { network: next, server: serverUrl(preferences!.profiles[next]), primary: preferences!.profiles[next].primaryUri };
+    const loaded = draftOf(preferences!.profiles[next].connection, next); setConnection(loaded);
+    draft.current = { network: next, server: serverUrl(preferences!.profiles[next]), primary: preferences!.profiles[next].primaryUri, connection: JSON.stringify(loaded) };
     const matching = wallets.filter(w => w.network === next);
     setWalletId(matching.length === 1 ? matching[0].id : ''); setError('');
   };
-  const profile = () => validateProfile({ network, primaryUri: primary, electrum: parseServer(server) }) as NetworkProfile;
+  const profile = () => {
+    if (!MANUAL_TRANSPORT) return validateProfile({ network, primaryUri: primary, electrum: parseServer(server) }) as NetworkProfile;
+    const chosen = connectionOf(connection);
+    return validateProfile({ network, primaryUri: primary, electrum: chosen.mode === 'relay' ? parseServer(server) : chainTarget(chosen), connection: chosen }) as NetworkProfile;
+  };
   async function save() {
     if (busy || !preferences) return;
     setAction('save'); setError('');
@@ -135,7 +140,8 @@ export function NetworkSettings({ client, currentNetwork, currentWalletId, apply
     <label className="field"><span>Network</span><select value={network} disabled={!preferences || busy} onChange={e => choose(e.target.value as Network)}>
       {(Object.keys(labels) as Network[]).map(n => <option key={n} value={n}>{labels[n]}</option>)}
     </select></label>
-    <label className="field" htmlFor="network-electrum"><span>Default Electrum server</span><Input id="network-electrum" value={server} onChange={e => { draft.current.server = e.target.value; setServer(e.target.value); setError(''); }} disabled={!preferences || busy} placeholder="ssl://bitkit.to:9999" spellCheck={false} /></label>
+    {MANUAL_TRANSPORT && <ConnectionFields value={connection} disabled={!preferences || busy} onChange={next => { draft.current.connection = JSON.stringify(next); setConnection(next); setError(''); }} />}
+    {(!MANUAL_TRANSPORT || connection.mode === 'relay') && <label className="field" htmlFor="network-electrum"><span>Default Electrum server</span><Input id="network-electrum" value={server} onChange={e => { draft.current.server = e.target.value; setServer(e.target.value); setError(''); }} disabled={!preferences || busy} placeholder="ssl://bitkit.to:9999" spellCheck={false} /></label>}
     {network === 'regtest' && <p className="muted">Use an Electrum server following your primary’s regtest chain. For a node on another computer, enter its reachable server address.</p>}
     {!session && <label className="field"><span>Wallet to open</span><select value={walletId} onChange={e => setWalletId(e.target.value)} disabled={busy}>
       <option value="">Choose a wallet</option>
