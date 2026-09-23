@@ -22,8 +22,8 @@
   },
   "dependencies": {
     "@base-ui/react": "1.7.0",
-    "@beignet/portable-engine": "git+https://github.com/coreyphillips/beignet-portable-engine.git#8d2806346dd5b81fc7b45448ed4006ee927cd55c",
-    "@beignet/wallet-core": "git+https://github.com/coreyphillips/beignet-wallet-core.git#eee471be0ec1c5c583ebf015b3d45b9e54ed3dcd",
+    "@beignet/portable-engine": "git+https://github.com/coreyphillips/beignet-portable-engine.git#c54b91723de5f6abe836a341bceb5f7cd42d23de",
+    "@beignet/wallet-core": "git+https://github.com/coreyphillips/beignet-wallet-core.git#f95cfef7d340e91d66ff3d4fad8c2030e135e4c6",
     "@noble/ciphers": "2.4.0",
     "@noble/hashes": "2.4.0",
     "@shadcn/react": "0.3.0",
