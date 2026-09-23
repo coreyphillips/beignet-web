@@ -1500,8 +1500,13 @@ function Send({
                   {review.destination}
                 </span>,
               ],
+              // Lightning: the priced route's fee, beside the maximum the
+              // payment is held to (the estimate plus room for a retry).
+              ...(review.estimatedFeeSats != null
+                ? [['Expected routing fee', `about ${money(review.estimatedFeeSats)} sats`] as [string, string]]
+                : []),
               [review.feeLabel || 'Fee', `${money(review.feeSats)} sats`],
-              ['Total', `${money(review.totalSats)} sats`],
+              [review.estimatedFeeSats != null ? 'Total, at most' : 'Total', `${money(review.totalSats)} sats`],
             ]}
           />
           {review.warnings.map((w, i) => (
