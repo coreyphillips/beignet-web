@@ -39,6 +39,7 @@ async function fixture(t, preset = {}) {
     async retrySetup() { calls.retries++; await control.gate?.promise; }
     async startWallet() {}
     async getConfig() { return { offlineReceiveAvailable: control.offlineAvailable }; }
+    async prepareSend(input) { calls.lastSend = input; throw Error('Stop at the review.'); }
     async quoteReceive({ amountSats, description, mode }) {
       calls.quotes++; calls.lastQuote = { amountSats, description, mode };
       if (control.quoteError) throw control.quoteError;
@@ -487,4 +488,21 @@ test('a Lightning-only fallback keeps a usable invoice QR and tracks settlement 
   f.control.receipt = { ...received('completed'), method: 'lightning', txids: [] };
   await act(async () => { await [...f.intervals.values()].find(timer => timer.ms === 2000).callback(); });
   assert.match(f.text(), /Payment received/); assert.equal(f.button('Share'), undefined);
+});
+
+// A structurally valid 24,425 sat invoice: the amount is all the form reads.
+const INVOICE_24425 = 'lnbc244250n1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqw53adf';
+
+test('a request that names its amount fills the send amount and locks it', async t => {
+  const f = await fixture(t); await f.click('Wallet'); await f.click('Send');
+  const request = () => f.tree.root.findByType('textarea');
+  const amount = () => f.tree.root.findAllByType('input').find(n => n.props.className === 'amount-input');
+  await act(async () => request().props.onChange({ target: { value: INVOICE_24425 } }));
+  assert.equal(amount().props.value, '24,425'); assert.equal(amount().props.readOnly, true);
+  assert.match(f.text(), /Set by the payment request\./);
+  await act(async () => f.tree.root.findByType('form').props.onSubmit({ preventDefault() {} }));
+  assert.equal(f.calls.lastSend.request, INVOICE_24425); assert.equal('amountSats' in f.calls.lastSend, false);
+  await act(async () => request().props.onChange({ target: { value: 'lnbc-typed' } }));
+  assert.equal(amount().props.readOnly, false); assert.equal(amount().props.value, '');
+  assert.match(f.text(), /Leave the amount empty if it’s already in the request/);
 });

@@ -3,6 +3,7 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -37,6 +38,7 @@ import {
   DEFAULT_HOST_URL,
   DEFAULT_PRIMARY_URI,
   parseSats,
+  parsePayment,
   formatSats,
   type WalletSnapshot,
   type WalletRecord,
@@ -154,12 +156,15 @@ function Amount({
   optional = false,
   disabled = false,
   required = false,
+  readOnly = false,
 }: {
   amount: string;
   setAmount: (v: string) => void;
   optional?: boolean;
   disabled?: boolean;
   required?: boolean;
+  /** Shown but not editable: the amount a payment request fixes. */
+  readOnly?: boolean;
 }) {
   return (
     <Field label={`Amount in sats${optional ? ' · optional' : required ? ' · required' : ''}`}>
@@ -169,6 +174,7 @@ function Amount({
         autoComplete="off"
         value={amount}
         disabled={disabled}
+        readOnly={readOnly}
         required={required}
         placeholder={optional ? 'Any amount' : required ? 'Enter amount' : '0'}
         onChange={(e) => setAmount(e.target.value)}
@@ -1256,6 +1262,27 @@ function RequestDetails({ item, client, now, refresh }: { item: Activity; client
   </div>;
 }
 
+/**
+ * The amount a payment request fixes, or null when it leaves it to the payer.
+ * The same precedence prepareSend applies: the request's own amount, else the
+ * amount of the Lightning invoice a Bitcoin link carries.
+ */
+function fixedAmount(request: string): number | null {
+  let parsed;
+  try {
+    parsed = parsePayment(request.trim());
+  } catch {
+    return null;
+  }
+  const sats =
+    parsed.kind === 'bolt11' || parsed.kind === 'bolt12'
+      ? parsed.amountSats
+      : parsed.kind === 'onchain'
+        ? parsed.amountSats ?? (parsed.lightning && 'amountSats' in parsed.lightning ? parsed.lightning.amountSats : null)
+        : null;
+  return typeof sats === 'number' && sats > 0 ? sats : null;
+}
+
 function Send({
   client,
   refresh,
@@ -1273,6 +1300,9 @@ function Send({
 }) {
   const [request, setRequest] = useState('');
   const [amount, setAmount] = useState('');
+  // A request that names its amount sets the field and locks it, so the
+  // amount cannot be changed by accident.
+  const fixedSats = useMemo(() => fixedAmount(request), [request]);
   const [review, setReview] = useState<SendReview | null>(null);
   const [result, setResult] = useState<SendResult | null>(null);
   const [busy, setBusy] = useState(false);
@@ -1288,7 +1318,7 @@ function Send({
       setReview(
         await client.prepareSend({
           request,
-          ...(amount.trim() ? { amountSats: parseSats(amount) } : {}),
+          ...(fixedSats === null && amount.trim() ? { amountSats: parseSats(amount) } : {}),
         }),
       );
     } catch (e) {
@@ -1415,10 +1445,19 @@ function Send({
             <Copy size={16} />
             Paste from clipboard
           </button>
-          <Amount amount={amount} setAmount={setAmount} optional />
-          <p className="muted">
-            Leave the amount empty if it’s already in the request.
-          </p>
+          {fixedSats === null ? (
+            <>
+              <Amount amount={amount} setAmount={setAmount} optional />
+              <p className="muted">
+                Leave the amount empty if it’s already in the request.
+              </p>
+            </>
+          ) : (
+            <>
+              <Amount amount={formatSats(fixedSats)} setAmount={setAmount} readOnly />
+              <p className="muted">Set by the payment request.</p>
+            </>
+          )}
           {demo && (
             <button
               type="button"
