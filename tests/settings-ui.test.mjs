@@ -19,13 +19,13 @@ const rootDir = new URL('..', import.meta.url).pathname;
 const deferred = () => { let resolve, reject; const promise = new Promise((a, b) => { resolve = a; reject = b; }); return { promise, resolve, reject }; };
 const textOf = node => typeof node === 'string' ? node : (node?.children || []).map(textOf).join('');
 
-async function fixture(t) {
+async function fixture(t, preset = {}) {
   const initial = { id: 'main-wallet', name: 'Settings fixture', network: 'mainnet', status: 'running', lfbw: { enabled: true, primaryUri: 'old-primary', setup: 'ready' } };
   let record = structuredClone(initial), prefs = { activeNetwork: 'mainnet', profiles: profiles.defaultProfiles() };
   prefs.profiles.mainnet.primaryUri = 'old-primary'; prefs.profiles.regtest.primaryUri = 'regtest-primary';
   const calls = { switches: 0, saves: 0, retries: 0, snapshots: 0, quotes: 0, receives: 0, imports: [] };
   const control = { lightningOnly: false, offlineAvailable: true, activity: [], receivableSats: 100000, quoteError: null, importError: null, gate: null, failSnapshot: false, setupFailed: false, snapshotGate: null, receiptGate: null,
-    receipt: { phase: 'waiting', receivedSats: 0, confirmedSats: 0, pendingSats: 0, txids: [] } };
+    receipt: { phase: 'waiting', receivedSats: 0, confirmedSats: 0, pendingSats: 0, txids: [] }, ...preset };
   class Embedded {
     connection = { url: 'embedded:', token: '', walletId: record.id };
     selectWallet(id) { this.connection.walletId = id; }
@@ -65,7 +65,7 @@ async function fixture(t) {
     }
   }
   const client = new Embedded();
-  const snapshot = () => ({ wallet: structuredClone(record), balance: { totalSats: 54321, availableSats: 54321, pendingSats: 0, receivableSats: control.receivableSats },
+  const snapshot = () => ({ wallet: structuredClone(record), balance: { totalSats: 54321, availableSats: 54321, pendingSats: 0, receivableSats: control.receivableSats, ...(control.offlineReceivableSats === undefined ? {} : { offlineReceivableSats: control.offlineReceivableSats }) },
     primary: { uri: record.lfbw.primaryUri, connected: record.lfbw.setup !== 'failed', setup: record.lfbw.setup, setupError: record.lfbw.setupError }, activity: structuredClone(control.activity), notes: [], updatedAt: Date.now() });
   const session = {
     networkSettings: async () => structuredClone(prefs),
@@ -342,6 +342,28 @@ test('offline receiving requires an amount even with existing capacity and prese
   await act(async () => f.tree.root.findByType('form').props.onSubmit({ preventDefault() {} }));
   assert.match(f.text(), /Your request/); assert.equal(f.calls.lastQuote.mode, 'offline');
   assert.match(f.text(), /Payable while this wallet is closed/);
+});
+
+test('the Receive offline box is absent when no channel can hold an offline receive', async t => {
+  const f = await fixture(t, { offlineReceivableSats: 0 }); await f.click('Wallet'); await f.click('Receive');
+  assert.doesNotMatch(f.text(), /Receive offline/);
+  assert.equal(f.tree.root.findAllByType('input').some(n => n.props.type === 'checkbox'), false);
+});
+
+test('an offline amount above what a channel can hold is stopped on the form', async t => {
+  const f = await fixture(t, { offlineReceivableSats: 30000 }); await f.click('Wallet'); await f.click('Receive');
+  await tickOffline(f);
+  assert.match(f.text(), /Enter 354 to 30,000 sats\./);
+  const amount = () => f.tree.root.findAllByType('input').find(n => n.props.className === 'amount-input');
+  await act(async () => amount().props.onChange({ target: { value: '30001' } }));
+  assert.equal(f.button('Continue').props.disabled, true);
+  assert.match(f.text(), /An offline receive can take up to 30,000 sats right now\./);
+  await act(async () => f.tree.root.findByType('form').props.onSubmit({ preventDefault() {} }));
+  assert.equal(f.calls.quotes, 0);
+  await act(async () => amount().props.onChange({ target: { value: '30000' } }));
+  assert.equal(f.button('Continue').props.disabled, false);
+  await act(async () => f.tree.root.findByType('form').props.onSubmit({ preventDefault() {} }));
+  assert.equal(f.calls.lastQuote.mode, 'offline'); assert.equal(f.calls.lastQuote.amountSats, 30000);
 });
 
 test('a prepared offline request tells the user they can close the wallet', async t => {
