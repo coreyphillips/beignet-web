@@ -668,6 +668,7 @@ export default function Home() {
                 now={now}
                 disabled={unusable}
                 allowAmountless={snapshot.balance.receivableSats > 0}
+                offlineReceivableSats={snapshot.balance.offlineReceivableSats}
                 refresh={refresh}
                 onActivity={() => open('activity')}
               />
@@ -1499,6 +1500,7 @@ function Receive({
   now,
   disabled,
   allowAmountless,
+  offlineReceivableSats,
   refresh,
   onActivity,
 }: {
@@ -1506,6 +1508,8 @@ function Receive({
   now: number;
   disabled: boolean;
   allowAmountless: boolean;
+  /** The most an offline receive can take right now; undefined when the engine does not say. */
+  offlineReceivableSats?: number;
   refresh: () => void;
   onActivity: () => void;
 }) {
@@ -1533,10 +1537,23 @@ function Receive({
       .catch(() => { if (active) setOfflineAvailable(false); });
     return () => { active = false; };
   }, [client]);
+  // Nor is it offered when no channel can hold one: an offline receive needs
+  // a channel with the primary that holds none of this wallet's balance. An
+  // engine that does not say how much fits leaves that to the quote.
+  const offlineOffered = offlineAvailable && (offlineReceivableSats === undefined || offlineReceivableSats > 0);
+  // Back to the ordinary request when an offline one no longer fits, but only
+  // on the form: creating an offline request reserves its channel, which takes
+  // the figure to 0 while that request is still on screen.
+  useEffect(() => {
+    // oxlint-disable-next-line react/react-compiler -- A refresh that finds no room withdraws a choice the form can no longer honour.
+    if (!request && !quote && !offlineOffered) setOffline(false);
+  }, [request, quote, offlineOffered]);
   // An amount is needed when the primary has to provide the capacity (a
   // just-in-time receive is quoted on it), when it changed under a quote, and
   // for an offline receive, whose slot holds one fixed amount.
   const amountRequired = !allowAmountless || capacityChanged || offline;
+  const typedSats = /^\d+$/.test(amount.trim()) ? Number(amount.trim()) : 0;
+  const overOffline = offline && offlineReceivableSats !== undefined && typedSats > offlineReceivableSats;
   const amountError = useRef(false);
   useEffect(() => {
     if (allowAmountless) {
@@ -1552,6 +1569,7 @@ function Receive({
       setError('Enter an amount for your payment request.');
       return;
     }
+    if (overOffline) return;
     latch.current = true;
     setBusy(true);
     setError('');
@@ -1755,7 +1773,7 @@ function Receive({
             </p>
           </div>
           <Amount amount={amount} setAmount={setAmount} optional={!amountRequired} required={amountRequired} disabled={busy} />
-          <p className="muted">{amountRequired ? 'Enter an amount for your payment request.' : 'Leave the amount blank to let the sender choose.'}</p>
+          <p className="muted">{overOffline ? `An offline receive can take up to ${money(offlineReceivableSats ?? 0)} sats right now.` : amountRequired ? 'Enter an amount for your payment request.' : 'Leave the amount blank to let the sender choose.'}</p>
           <Field label="What’s it for? · optional">
             <Input
               value={description}
@@ -1765,7 +1783,7 @@ function Receive({
               placeholder="Dinner, a thank-you, anything"
             />
           </Field>
-          {offlineAvailable && (
+          {offlineOffered && (
             <div>
               <label className="check-label">
                 <input
@@ -1778,7 +1796,7 @@ function Receive({
               </label>
               <p className="muted">
                 {offline
-                  ? 'Accept this payment even while this wallet is closed. Your primary node prepares it, so it has to offer offline settlement. Enter at least 354 sats.'
+                  ? `Accept this payment even while this wallet is closed. Your primary node prepares it, so it has to offer offline settlement. ${offlineReceivableSats === undefined ? 'Enter at least 354 sats.' : `Enter 354 to ${money(offlineReceivableSats)} sats.`}`
                   : 'Off, the request is paid over your channel or provisioned by your primary node just in time.'}
               </p>
             </div>
@@ -1786,7 +1804,7 @@ function Receive({
           <output className="muted">
             {busy ? 'Checking your primary’s receiving capacity. This can take a few seconds.' : 'We’ll check any receiving fee before creating the request.'}
           </output>
-          <Action type="submit" disabled={busy || disabled || (amountRequired && !amount.trim())}>
+          <Action type="submit" disabled={busy || disabled || (amountRequired && !amount.trim()) || overOffline}>
             {busy ? <Busy text="Checking availability…" /> : <>{error ? 'Try again' : 'Continue'}<ArrowRight size={18} /></>}
           </Action>
         </form>
