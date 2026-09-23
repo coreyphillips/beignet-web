@@ -39,7 +39,11 @@ async function fixture(t, preset = {}) {
     async retrySetup() { calls.retries++; await control.gate?.promise; }
     async startWallet() {}
     async getConfig() { return { offlineReceiveAvailable: control.offlineAvailable }; }
-    async prepareSend(input) { calls.lastSend = input; throw Error('Stop at the review.'); }
+    async prepareSend(input) {
+      calls.lastSend = input;
+      if (control.sendReview) return structuredClone(control.sendReview);
+      throw Error('Stop at the review.');
+    }
     async quoteReceive({ amountSats, description, mode }) {
       calls.quotes++; calls.lastQuote = { amountSats, description, mode };
       if (control.quoteError) throw control.quoteError;
@@ -505,4 +509,16 @@ test('a request that names its amount fills the send amount and locks it', async
   await act(async () => request().props.onChange({ target: { value: 'lnbc-typed' } }));
   assert.equal(amount().props.readOnly, false); assert.equal(amount().props.value, '');
   assert.match(f.text(), /Leave the amount empty if it’s already in the request/);
+});
+
+test('a Lightning review shows the expected fee beside the maximum it can cost', async t => {
+  const f = await fixture(t, { sendReview: { id: 'review-ln', destination: INVOICE_24425, description: 'Coffee', amountSats: 24425,
+    feeSats: 11, estimatedFeeSats: 1, feeLabel: 'Maximum routing fee', totalSats: 24436, route: 'lightning', expiresAt: Date.now() + 60000, warnings: [] } });
+  await f.click('Wallet'); await f.click('Send');
+  await act(async () => f.tree.root.findByType('textarea').props.onChange({ target: { value: INVOICE_24425 } }));
+  await act(async () => f.tree.root.findByType('form').props.onSubmit({ preventDefault() {} }));
+  const text = f.text();
+  assert.match(text, /Expected routing feeabout 1 sats/);
+  assert.match(text, /Maximum routing fee11 sats/);
+  assert.match(text, /Total, at most24,436 sats/);
 });
