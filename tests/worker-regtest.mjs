@@ -90,7 +90,7 @@ try {
   assert.match(invoice.bolt11, /^lnbcrt/);
   assert.deepEqual(await rpc('/ffor/epochs'), [], 'A normal invoice must not claim offline coverage');
   const config = await call('request', { path: '/api/config' });
-  assert.equal(config.engineVersion, '0.21.12-portable');
+  assert.equal(config.engineVersion, '0.22.0-portable');
   const nodeId = (await rpc('/info')).nodeId;
   const regtestProfile = { network: 'regtest', primaryUri, electrum };
   const provisioned = await call('switch-network', regtestProfile);
